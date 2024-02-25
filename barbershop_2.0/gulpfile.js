@@ -1,196 +1,146 @@
-import { readFileSync, rmSync } from 'node:fs';
+// Импорт пакетов
+const gulp = require('gulp')
+const less = require('gulp-less')
+const stylus = require('gulp-stylus')
+const sass = require('gulp-sass')(require('sass'))
+const rename = require('gulp-rename')
+const cleanCSS = require('gulp-clean-css')
+const ts = require('gulp-typescript')
+//const coffee = require('gulp-coffee')
+const babel = require('gulp-babel')
+const uglify = require('gulp-uglify')
+const concat = require('gulp-concat')
+const sourcemaps = require('gulp-sourcemaps')
+const autoprefixer = require('gulp-autoprefixer')
+const imagemin = require('gulp-imagemin')
+const htmlmin = require('gulp-htmlmin')
+const size = require('gulp-size')
+//const gulppug = require('gulp-pug')
+const newer = require('gulp-newer')
+const browsersync = require('browser-sync').create()
+const del = require('del')
 
-import gulp from 'gulp';
-import plumber from 'gulp-plumber';
-import { nunjucksCompile } from 'gulp-nunjucks';
-import htmlmin from 'gulp-htmlmin';
-import * as dartSass from 'sass';
-import gulpSass from 'gulp-sass';
-import postcss from 'gulp-postcss';
-import postUrl from 'postcss-url';
-import autoprefixer from 'autoprefixer';
-import csso from 'postcss-csso';
-import { createGulpEsbuild } from 'gulp-esbuild';
-import browserslistToEsbuild from 'browserslist-to-esbuild';
-import sharp from 'gulp-sharp-responsive';
-import svgo from 'gulp-svgmin';
-import { stacksvg } from 'gulp-stacksvg';
-import server from 'browser-sync';
-import bemlinter from 'gulp-html-bemlinter';
-
-const { src, dest, watch, series, parallel } = gulp;
-const sass = gulpSass(dartSass);
-const PATH_TO_SOURCE = './source/';
-const PATH_TO_DIST = './build/';
-const PATH_TO_RAW = './raw/';
-const PATHS_TO_STATIC = [
-  `${PATH_TO_SOURCE}fonts/**/*.{woff2,woff}`,
-  `${PATH_TO_SOURCE}*.ico`,
-  `${PATH_TO_SOURCE}*.webmanifest`,
-  `${PATH_TO_SOURCE}favicons/**/*.{png,svg}`,
-  `${PATH_TO_SOURCE}vendor/**/*`,
-  `${PATH_TO_SOURCE}images/**/*`,
-  `!${PATH_TO_SOURCE}images/icons/**/*`,
-  `!${PATH_TO_SOURCE}**/README.md`,
-];
-let isDevelopment = true;
-
-export function processMarkup () {
-  return src(`${PATH_TO_SOURCE}**/*.html`)
-    .pipe(nunjucksCompile())
-    .pipe(htmlmin({ collapseWhitespace: !isDevelopment }))
-    .pipe(dest(PATH_TO_DIST))
-    .pipe(server.stream());
-}
-
-export function lintBem () {
-  return src(`${PATH_TO_SOURCE}*.html`)
-    .pipe(bemlinter());
-}
-
-export function processStyles () {
-  return src(`${PATH_TO_SOURCE}styles/*.scss`, { sourcemaps: isDevelopment })
-    .pipe(plumber())
-    .pipe(sass().on('error', sass.logError))
-    .pipe(postcss([
-      postUrl({ assetsPath: '../' }),
-      autoprefixer(),
-      csso()
-    ]))
-    .pipe(dest(`${PATH_TO_DIST}styles`, { sourcemaps: isDevelopment }))
-    .pipe(server.stream());
-}
-
-export function processScripts () {
-  const gulpEsbuild = createGulpEsbuild({ incremental: isDevelopment });
-
-  return src(`${PATH_TO_SOURCE}scripts/*.js`)
-    .pipe(gulpEsbuild({
-      bundle: true,
-      format: 'esm',
-      // splitting: true,
-      platform: 'browser',
-      minify: !isDevelopment,
-      sourcemap: isDevelopment,
-      target: browserslistToEsbuild(),
-    }))
-    .pipe(dest(`${PATH_TO_DIST}scripts`))
-    .pipe(server.stream());
-}
-
-export function optimizeRaster () {
-  const RAW_DENSITY = 2;
-  const TARGET_FORMATS = [undefined, 'webp']; // undefined — initial format: jpg or png
-
-  function createOptionsFormat() {
-    const formats = [];
-
-    for (const format of TARGET_FORMATS) {
-      for (let density = RAW_DENSITY; density > 0; density--) {
-        formats.push(
-          {
-            format,
-            rename: { suffix: `@${density}x` },
-            width: ({ width }) => Math.ceil(width * density / RAW_DENSITY),
-            jpegOptions: { progressive: true },
-          },
-        );
-      }
-    }
-
-    return { formats };
+// Пути исходных файлов src и пути к результирующим файлам dest
+const paths = {
+  html: {
+    src: ['src/*.html', 'src/*.pug'],
+    dest: 'dist/'
+  },
+  styles: {
+    src: ['src/styles/**/*.sass', 'src/styles/**/*.scss', 'src/styles/**/*.styl', 'src/styles/**/*.less', 'src/styles/**/*.css'],
+    dest: 'dist/css/'
+  },
+  scripts: {
+    src: ['src/scripts/**/*.coffee', 'src/scripts/**/*.ts', 'src/scripts/**/*.js'],
+    dest: 'dist/js/'
+  },
+  images: {
+    src: 'src/img/**',
+    dest: 'dist/img/'
   }
-
-  return src(`${PATH_TO_RAW}images/**/*.{png,jpg,jpeg}`)
-    .pipe(sharp(createOptionsFormat()))
-    .pipe(dest(`${PATH_TO_SOURCE}images`));
 }
 
-export function optimizeVector () {
-  return src([`${PATH_TO_RAW}**/*.svg`])
-    .pipe(svgo())
-    .pipe(dest(PATH_TO_SOURCE));
+// Очистить каталог dist, удалить все кроме изображений
+function clean() {
+  return del(['dist/*', '!dist/img', '!dist/fonts'])
 }
 
-export function createStack () {
-  return src(`${PATH_TO_SOURCE}images/icons/**/*.svg`)
-    .pipe(stacksvg())
-    .pipe(dest(`${PATH_TO_DIST}images/icons`));
+// Обработка html и pug
+function html() {
+  return gulp.src(paths.html.src)
+  //.pipe(gulppug())
+  .pipe(htmlmin({ collapseWhitespace: true }))
+  .pipe(size({
+    showFiles:true
+  }))
+  .pipe(gulp.dest(paths.html.dest))
+  .pipe(browsersync.stream())
 }
 
-export function copyStatic () {
-  return src(PATHS_TO_STATIC, { base: PATH_TO_SOURCE })
-    .pipe(dest(PATH_TO_DIST));
+// Обработка препроцессоров стилей
+function styles() {
+  return gulp.src(paths.styles.src)
+  .pipe(sourcemaps.init())
+  //.pipe(less())
+  //.pipe(stylus())
+  .pipe(sass().on('error', sass.logError))
+  .pipe(autoprefixer({
+    cascade: false
+  }))
+  .pipe(cleanCSS({
+    level: 2
+  }))
+  .pipe(rename({
+    basename: 'style',
+    suffix: '.min'
+  }))
+  .pipe(sourcemaps.write('.'))
+  .pipe(size({
+    showFiles:true
+  }))
+  .pipe(gulp.dest(paths.styles.dest))
+  .pipe(browsersync.stream())
 }
 
-export function startServer () {
-  const serveStatic = PATHS_TO_STATIC
-    .filter((path) => path.startsWith('!') === false)
-    .map((path) => {
-      const dir = path.replace(/\*\*(.*)/, '');
-      const route = dir.replace(PATH_TO_SOURCE, '/');
+// Обработка Java Script, Type Script и Coffee Script
+function scripts() {
+  return gulp.src(paths.scripts.src)
+  .pipe(sourcemaps.init())
+  //.pipe(coffee({bare: true}))
+  /*
+  .pipe(ts({
+    noImplicitAny: true,
+    outFile: 'main.min.js'
+  }))
+  */
+  .pipe(babel({
+    presets: ['@babel/env']
+  }))
+  .pipe(uglify())
+  .pipe(concat('main.min.js'))
+  .pipe(sourcemaps.write('.'))
+  .pipe(size({
+    showFiles:true
+  }))
+  .pipe(gulp.dest(paths.scripts.dest))
+  .pipe(browsersync.stream())
+}
 
-      return { route, dir };
-    });
+// Сжатие изображений
+function img() {
+  return gulp.src(paths.images.src)
+  .pipe(newer(paths.images.dest))
+  .pipe(imagemin({
+    progressive: true
+  }))
+  .pipe(size({
+    showFiles:true
+  }))
+  .pipe(gulp.dest(paths.images.dest))
+}
 
-  server.init({
+// Отслеживание изменений в файлах и запуск лайв сервера
+function watch() {
+  browsersync.init({
     server: {
-      baseDir: PATH_TO_DIST
-    },
-    serveStatic,
-    cors: true,
-    notify: false,
-    ui: false,
-  }, (err, bs) => {
-    bs.addMiddleware('*', (req, res) => {
-      res.write(readFileSync(`${PATH_TO_DIST}404.html`));
-      res.end();
-    });
-  });
-
-  watch(`${PATH_TO_SOURCE}**/*.{html,njk}`, series(processMarkup));
-  watch(`${PATH_TO_SOURCE}styles/**/*.scss`, series(processStyles));
-  watch(`${PATH_TO_SOURCE}scripts/**/*.js`, series(processScripts));
-  watch(`${PATH_TO_SOURCE}images/icons/**/*.svg`, series(createStack, reloadServer));
-  watch(PATHS_TO_STATIC, series(reloadServer));
+        baseDir: "./dist"
+    }
+  })
+  gulp.watch(paths.html.dest).on('change', browsersync.reload)
+  gulp.watch(paths.html.src, html)
+  gulp.watch(paths.styles.src, styles)
+  gulp.watch(paths.scripts.src, scripts)
+  gulp.watch(paths.images.src, img)
 }
 
-function reloadServer (done) {
-  server.reload();
-  done();
-}
+// Таски для ручного запуска с помощью gulp clean, gulp html и т.д.
+exports.clean = clean
 
-export function removeBuild (done) {
-  rmSync(PATH_TO_DIST, {
-    force: true,
-    recursive: true,
-  });
-  done();
-}
+exports.html = html
+exports.styles = styles
+exports.scripts = scripts
+exports.img = img
+exports.watch = watch
 
-export function buildProd (done) {
-  isDevelopment = false;
-  series(
-    removeBuild,
-    parallel(
-      processMarkup,
-      processStyles,
-      processScripts,
-      createStack,
-      copyStatic,
-    ),
-  )(done);
-}
-
-export function runDev (done) {
-  series(
-    removeBuild,
-    parallel(
-      processMarkup,
-      processStyles,
-      processScripts,
-      createStack,
-    ),
-    startServer,
-  )(done);
-}
+// Таск, который выполняется по команде gulp
+exports.default = gulp.series(clean, html, gulp.parallel(styles, scripts, img), watch)
