@@ -1,5 +1,7 @@
 // Импорт пакетов
 const gulp = require('gulp')
+const plumber = require("gulp-plumber")
+const postcss = require("gulp-postcss");
 const less = require('gulp-less')
 const stylus = require('gulp-stylus')
 const sass = require('gulp-sass')(require('sass'))
@@ -10,6 +12,11 @@ const ts = require('gulp-typescript')
 const babel = require('gulp-babel')
 const uglify = require('gulp-uglify')
 const concat = require('gulp-concat')
+const csso = require("postcss-csso")
+const terser = require("gulp-terser")
+const squoosh = require("gulp-libsquoosh")
+const webp = require("gulp-webp")
+const svgstore = require("gulp-svgstore")
 const sourcemaps = require('gulp-sourcemaps')
 const autoprefixer = require('gulp-autoprefixer')
 const imagemin = require('gulp-imagemin')
@@ -18,7 +25,9 @@ const size = require('gulp-size')
 //const gulppug = require('gulp-pug')
 const newer = require('gulp-newer')
 const browsersync = require('browser-sync').create()
-const del = require('del')
+const del = require('del');
+const autoPrefixer = require('gulp-autoprefixer');
+const sync = require("browser-sync").create();
 
 // Пути исходных файлов src и пути к результирующим файлам dest
 const paths = {
@@ -63,6 +72,11 @@ function styles() {
   .pipe(sourcemaps.init())
   //.pipe(less())
   //.pipe(stylus())
+  .pipe(plumber())
+  .pipe(postcss([
+    autoPrefixer,
+    csso
+  ]))
   .pipe(sass().on('error', sass.logError))
   .pipe(autoprefixer({
     cascade: false
@@ -107,17 +121,43 @@ function scripts() {
 }
 
 // Сжатие изображений
-function img() {
-  return gulp.src(paths.images.src)
-  .pipe(newer(paths.images.dest))
-  .pipe(imagemin({
-    progressive: true
-  }))
-  .pipe(size({
-    showFiles:true
-  }))
-  .pipe(gulp.dest(paths.images.dest))
+const optimizeImages = () => {
+  return gulp.src("src/img/**/*.{png,jpg,svg}")
+    .pipe(squoosh())
+    .pipe(gulp.dest("dist/img"))
 }
+
+exports.images = optimizeImages;
+
+const copyImages = () => {
+  return gulp.src("src/img/**/*.{png,jpg,svg}")
+    .pipe(gulp.dest("dist/img"))
+}
+
+exports.images = copyImages;
+
+// WebP
+
+const createWebp = () => {
+  return gulp.src("src/img/**/*.{jpg,png}")
+    .pipe(webp({quality: 90}))
+    .pipe(gulp.dest("dist/img"))
+}
+
+exports.createWebp = createWebp;
+
+// Sprite
+
+const sprite = () => {
+  return gulp.src("src/img/icons/*.svg")
+    .pipe(svgstore({
+      inlineSvg: true
+    }))
+    .pipe(rename("sprite.svg"))
+    .pipe(gulp.dest("dist/img"));
+}
+
+exports.sprite = sprite;
 
 // Отслеживание изменений в файлах и запуск лайв сервера
 function watch() {
@@ -143,4 +183,15 @@ exports.img = img
 exports.watch = watch
 
 // Таск, который выполняется по команде gulp
-exports.default = gulp.series(clean, html, gulp.parallel(styles, scripts, img), watch)
+exports.default = gulp.series(
+  clean,
+  html,
+  optimizeImages,
+  gulp.parallel(
+    styles,
+    sprite,
+    createWebp,
+    scripts,
+    watch
+    ),
+);
